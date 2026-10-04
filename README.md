@@ -2,6 +2,8 @@
 
 开源仓库：https://github.com/mimimaster/dsh-devin-search · MIT 许可证（第三方协议实现的来源见 `NOTICE`）。
 
+**父项目：** [piwin](https://github.com/mimimaster/piwin) — 基于 pi 的桌面端 coding agent（Agent Runtime、编排、工具链与桌面壳）。本插件的 Devin 搜索能力最初在 piwin 中打磨，再抽成独立 DSH bundle，方便在 DeepSeek Harness 里单独安装使用。
+
 独立的 **DSH npm ESM bundle**：浏览器登录 Devin 一次，由 DSH Host 持久化 session；原生 `web_search` 与新增 `code_search` 共用登录。保留原生 `web_fetch`（HTTP）和你的主模型，不修改 DSH/piwin，不依赖 piwin 私有包，不读取其他应用的 token。
 
 > 新包名为 **`dsh-devin-search`**；不要再安装旧包名 `dsh-plugin-devin`。
