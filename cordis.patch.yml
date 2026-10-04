@@ -1,0 +1,8 @@
+# Layer over a normal DSH base/web-app profile; keep native web_fetch.
+- id: web
+  config:
+    searchProvider: devin
+    fetchProvider: http
+- insert:
+    - id: devin-search
+      name: dsh-devin-search

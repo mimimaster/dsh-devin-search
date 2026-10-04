@@ -1,0 +1,17 @@
+node_modules/
+lib/
+dist/
+coverage/
+*.tgz
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.npmrc
+.credentials.yaml
+.credentials.yml
+*.pem
+*.key
+*.p12
+*.pfx

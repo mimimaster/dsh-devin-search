@@ -1,0 +1,97 @@
+{
+  "name": "dsh-devin-search",
+  "version": "0.2.5",
+  "description": "DSH Devin OAuth + shared web_search / code_search bundle",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mimimaster/dsh-devin-search.git"
+  },
+  "homepage": "https://github.com/mimimaster/dsh-devin-search#readme",
+  "bugs": {
+    "url": "https://github.com/mimimaster/dsh-devin-search/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-ui-tool",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build:node": "tsc -p tsconfig.build.json",
+    "build:client": "node scripts/build-client.mjs",
+    "build": "npm run build:node && npm run build:client",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "ignore": "7.0.5"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": ">=3.18.4 <4 || 3.18.5-alpha.1",
+    "@deepseek-ai/cordis": ">=4.0.4 <5.0.0",
+    "@deepseek-ai/dsh-agent": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1",
+    "@deepseek-ai/dsh-authorization": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1",
+    "@deepseek-ai/dsh-commands": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1",
+    "@deepseek-ai/dsh-credentials": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1",
+    "@deepseek-ai/dsh-fs": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1",
+    "@deepseek-ai/dsh-tools": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1",
+    "@deepseek-ai/dsh-web": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.5-alpha.1",
+    "@deepseek-ai/dsh-authorization": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-commands": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-credentials": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-credentials-local": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-fs": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-fs-local": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-web": "0.2.1-alpha.1",
+    "@types/node": "22.19.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}
