@@ -53,6 +53,105 @@ describe('bounded host-local code search', () => {
     expect((await codeSearch(input(), dir, p => p, completion, liveSignal())).status).toBe('success');
     expect(JSON.stringify(vi.mocked(completion.complete).mock.calls[1])).toContain('Path not found');
   });
+  it('searches a targeted path and validates snippets without enumerating a large unrelated subtree', async () => {
+    await mkdir(join(dir, 'unrelated'));
+    await Promise.all(Array.from({ length: LIMITS.filesVisited + 20 }, (_, i) => writeFile(join(dir, `unrelated/f${i}.ts`), 'unrelated')));
+    const completion = loop([
+      marker({ command1: { op: 'ls' } }),
+      marker({ command1: { op: 'rg', path: '/codebase/src', pattern: 'target' } }),
+      marker({ command1: { op: 'readfile', path: '/codebase/src/a.ts', start: 1, end: 3 } }),
+      '[TOOL_CALLS]ANSWER{"files":[{"path":"/codebase/src/a.ts","ranges":[{"start":1,"end":3}]}]}',
+    ]);
+    const result = await codeSearch(input(), dir, p => p, completion, liveSignal());
+    expect(result.status).toBe('success');
+    expect(result.files[0]?.ranges[0]?.content).toContain('return 42');
+    const transcript = JSON.stringify(vi.mocked(completion.complete).mock.calls);
+    expect(transcript).toContain('/codebase/unrelated/');
+    expect(transcript).not.toContain('unrelated/f0.ts');
+  });
+  it('reports bounded broad scans as partial and still permits a subsequent exact file read', async () => {
+    await mkdir(join(dir, 'many'));
+    await Promise.all(Array.from({ length: LIMITS.filesVisited + 20 }, (_, i) => writeFile(join(dir, `many/f${i}.ts`), 'ordinary file')));
+    const workspace = await LocalWorkspace.create(dir, dir, p => p, liveSignal());
+    const partial = await workspace.execute({ op: 'rg', path: '/codebase/many', pattern: 'missing' });
+    expect(partial).toContain('[PARTIAL]');
+    expect(partial).toContain('not proof');
+    expect(await workspace.execute({ op: 'readfile', path: '/codebase/src/a.ts', start: 1, end: 3 })).toContain('return 42');
+    expect((await workspace.snippet('/codebase/src/a.ts', 1, 3)).content).toContain('return 42');
+  });
+  it('does not describe a truncated empty scan as a verified whole-workspace no-match', async () => {
+    await mkdir(join(dir, 'many'));
+    await Promise.all(Array.from({ length: LIMITS.filesVisited + 1 }, (_, i) => writeFile(join(dir, `many/f${i}.ts`), 'ordinary file')));
+    const completion = loop([marker({ command1: { op: 'rg', path: '/codebase/many', pattern: 'missing' } }), '[TOOL_CALLS]ANSWER{"files":[]}']);
+    const result = await codeSearch(input(), dir, p => p, completion, liveSignal());
+    expect(result.content).toContain('Search was partial');
+    expect(result.content).not.toBe('No relevant files found.');
+  });
+  it('counts repeated keyword scans once while retaining a cumulative distinct-file limit', async () => {
+    const batches = LIMITS.totalFilesVisited / LIMITS.filesVisited;
+    for (let batch = 0; batch <= batches; batch++) {
+      await mkdir(join(dir, `many${batch}`));
+      await Promise.all(Array.from({ length: LIMITS.filesVisited + 1 }, (_, i) => writeFile(join(dir, `many${batch}/f${i}.ts`), 'ordinary file')));
+    }
+    const workspace = await LocalWorkspace.create(dir, dir, p => p, liveSignal());
+    for (let i = 0; i < batches; i++) {
+      expect(await workspace.execute({ op: 'glob', path: `/codebase/many${i}`, pattern: 'missing' })).toContain('[PARTIAL]');
+      expect(await workspace.execute({ op: 'glob', path: `/codebase/many${i}`, pattern: 'missing' })).toContain('[PARTIAL]');
+    }
+    await expect(workspace.execute({ op: 'glob', path: `/codebase/many${batches}`, pattern: 'missing' })).rejects.toThrow('Total distinct file visit');
+  });
+  it('lets the model recover from readfile on a directory without weakening file validation', async () => {
+    const completion = loop([
+      marker({ command1: { op: 'readfile', path: '/codebase/src' }, command2: { op: 'readfile', path: '/codebase/src/a.ts', start: 1, end: 3 } }),
+      '[TOOL_CALLS]ANSWER{"files":[{"path":"/codebase/src/a.ts","ranges":[{"start":1,"end":3}]}]}',
+    ]);
+    expect((await codeSearch(input(), dir, p => p, completion, liveSignal())).status).toBe('success');
+    expect(JSON.stringify(vi.mocked(completion.complete).mock.calls)).toContain('Path is a directory');
+  });
+  it('admits at most four commands from a live overfilled batch, reports skipped commands, and continues', async () => {
+    const completion = loop([
+      marker({ command1: { op: 'readfile', path: '/codebase/src/a.ts', start: 1, end: 3 }, command2: { op: 'ls' }, command3: { op: 'ls' }, command4: { op: 'ls' }, command5: { op: 'readfile', path: '/codebase/.env' }, command6: { op: 'bash' }, command7: { op: 'ls' }, command8: { op: 'ls' } }),
+      '[TOOL_CALLS]ANSWER{"files":[{"path":"/codebase/src/a.ts","ranges":[{"start":1,"end":3}]}]}',
+    ]);
+    const result = await codeSearch(input(), dir, p => p, completion, liveSignal());
+    expect(result.status).toBe('success');
+    const transcript = JSON.stringify(vi.mocked(completion.complete).mock.calls);
+    expect(transcript).toContain('Commands beyond command4 were not executed');
+    expect(transcript).not.toContain('FIXTURE_SECRET');
+  });
+  it('rejects an invalid admitted batch before executing its first valid command', async () => {
+    const completion = loop([marker({ command1: { op: 'readfile', path: '/codebase/src/a.ts' }, command2: { op: 'bash' } })]);
+    expect((await codeSearch(input(), dir, p => p, completion, liveSignal())).content).toContain('Invalid restricted_exec');
+    expect(completion.complete).toHaveBeenCalledTimes(1);
+  });
+  it('refuses unsupported cloud tools immediately rather than running them in a repair turn', async () => {
+    const completion = loop(['[TOOL_CALLS]bash{"command":"cat /etc/passwd"}']);
+    expect((await codeSearch(input(), dir, p => p, completion, liveSignal())).content).toContain('unsupported tool');
+    expect(completion.complete).toHaveBeenCalledTimes(1);
+  });
+  it('applies ancestor ignore rules on direct reads without needing a full inventory', async () => {
+    await mkdir(join(dir, 'src/hidden'));
+    await writeFile(join(dir, 'src/.gitignore'), 'hidden/\n');
+    await writeFile(join(dir, 'src/hidden/.gitignore'), '!a.ts\n');
+    await writeFile(join(dir, 'src/hidden/a.ts'), 'must not leave the host');
+    const workspace = await LocalWorkspace.create(dir, dir, p => p, liveSignal());
+    await expect(workspace.execute({ op: 'readfile', path: '/codebase/src/hidden/a.ts' })).rejects.toThrow('Ignored');
+    await expect(workspace.snippet('/codebase/src/hidden/a.ts', 1, 1)).rejects.toThrow('Ignored');
+  });
+  it('allows more than three discovery turns and repairs one refused final command without executing it', async () => {
+    const discover = marker({ command1: { op: 'ls' } });
+    const completion = loop([
+      discover, discover, discover, discover, discover,
+      marker({ command1: { op: 'readfile', path: '/codebase/src/a.ts', start: 1, end: 3 } }),
+      marker({ command1: { op: 'readfile', path: '/codebase/.env' } }),
+      '[TOOL_CALLS]ANSWER{"files":[{"path":"/codebase/src/a.ts","ranges":[{"start":1,"end":3}]}]}',
+    ]);
+    const result = await codeSearch(input(), dir, p => p, completion, liveSignal());
+    expect(result.status).toBe('success');
+    expect(completion.complete).toHaveBeenCalledTimes(8);
+    expect(JSON.stringify(vi.mocked(completion.complete).mock.calls)).toContain('No commands were executed');
+    expect(JSON.stringify(vi.mocked(completion.complete).mock.calls)).not.toContain('FIXTURE_SECRET');
+  });
   it('rejects absent session cwd, remote mapping, foreign absolute folder and symlink escape folder', async () => {
     const completion = loop(['<ANSWER></ANSWER>']);
     expect((await codeSearch(input(), undefined, p => p, completion, liveSignal())).status).toBe('error');
@@ -84,8 +183,11 @@ describe('bounded host-local code search', () => {
   });
   it('enforces commands/turns/ranges/pattern/output/file visit budgets', async () => {
     expect(() => command({ op: 'bash', path: '/codebase' })).toThrow(); expect(() => command({ op: 'rg', pattern: 'x'.repeat(257) })).toThrow('budget');
-    expect((await codeSearch(input(), dir, p => p, loop([marker({ command1: { op: 'tree' }, command5: { op: 'tree' } })]), liveSignal())).content).toContain('command1');
-    const m = marker({ command1: { op: 'tree' } }); expect((await codeSearch(input(), dir, p => p, loop([m, m, m, m]), liveSignal())).status).toBe('error');
+    expect((await codeSearch(input(), dir, p => p, loop([marker({ command1: { op: 'tree' }, shell: { op: 'tree' } })]), liveSignal())).content).toContain('unknown fields');
+    const m = marker({ command1: { op: 'tree' } });
+    const exhausted = loop(Array(8).fill(m));
+    expect((await codeSearch(input(), dir, p => p, exhausted, liveSignal())).content).toContain('exhausted its command budget');
+    expect(exhausted.complete).toHaveBeenCalledTimes(8);
     const workspace = await LocalWorkspace.create(dir, dir, p => p, liveSignal());
     await expect(workspace.snippet('/codebase/src/a.ts', 1, 999)).rejects.toThrow('400');
     await expect(workspace.snippet('/codebase/src/a.ts', 1, 20)).rejects.toThrow('length');
