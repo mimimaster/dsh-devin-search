@@ -1,4 +1,4 @@
-import type { Sessions } from './session.js';
+import type { SearchSession } from './search-session.js';
 import { chatRequest, gzipFrame, JWT_PATH, jwtRequest, jwtResponse, MODEL, STREAM_PATH, streamText, type Message } from './protocol.js';
 import { boundedBody, check, deadline, expiry, fail, redact, request } from './safety.js';
 export interface Completion { complete(system: string, messages: readonly Message[], tools: string, signal: AbortSignal): Promise<string> }
@@ -7,7 +7,7 @@ export class WindsurfCompletion implements Completion {
   private cached?: { token: string; jwt: string; until: number };
   private version = 0;
   readonly model = MODEL; // Endpoint's current default; no unverified protobuf model field is invented.
-  constructor(private readonly sessions: Sessions, private readonly options: { base?: string; fetcher?: typeof fetch; timeoutMs?: number } = {}) {}
+  constructor(private readonly sessions: SearchSession, private readonly options: { base?: string; fetcher?: typeof fetch; timeoutMs?: number } = {}) {}
   invalidate(): void { this.version++; this.cached = undefined; }
   async complete(system: string, messages: readonly Message[], tools: string, caller: AbortSignal): Promise<string> {
     const access = await this.sessions.access(caller); const signal = deadline(access.signal, this.options.timeoutMs ?? 30_000);

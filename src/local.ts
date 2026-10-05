@@ -4,7 +4,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import ignore, { type Ignore } from 'ignore';
 import { check, fail, object } from './safety.js';
 export const LIMITS = { fileBytes: 512 * 1024, filesVisited: 512, entries: 4096, totalFilesVisited: 4096, totalEntries: 32768, stepReadBytes: 8 * 1024 * 1024, totalReadBytes: 32 * 1024 * 1024, stepBytes: 24 * 1024, totalBytes: 192 * 1024, snippetBytes: 48 * 1024, finalFiles: 8 };
-const forbidden = (path: string) => path.split(/[\\/]/).some(part => /^(?:\.git|node_modules|dist|build|coverage|\.next|\.cache|vendor|\.ssh|\.dsh|\.piwin)$/i.test(part) || /(?:^\.env(?:\.|$)|credential|secret|(?:^|[._-])(?:token|private.?key|id_rsa|id_ed25519)(?:[._-]|$)|\.(?:pem|key|p12|pfx|keystore)$)/i.test(part));
+const forbidden = (path: string) => path.split(/[\\/]/).some(part => /^(?:\.git|node_modules|dist|build|coverage|\.next|\.cache|vendor|\.ssh|\.dsh|\.piwin|\.pi)$/i.test(part) || /(?:^\.env(?:\.|$)|credential|secret|(?:^|[._-])(?:token|private.?key|id_rsa|id_ed25519)(?:[._-]|$)|\.(?:pem|key|p12|pfx|keystore)$)/i.test(part));
 export function contains(root: string, path: string): boolean {
   const rel = relative(root, path); return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`));
 }

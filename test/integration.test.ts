@@ -126,4 +126,14 @@ describe('genuine Cordis seams + credentials-local persistence', () => {
     const invalid = await h.ctx.tools.execute({ callId, name: 'code_search', arguments: { search_term: 123 }, signal: liveSignal() }); expect(invalid.isError).toBe(true);
     const extra = await h.ctx.tools.execute({ callId, name: 'code_search', arguments: { search_term: 'x', search_folder_absolute_uri: dir, shell: 'evil' }, signal: liveSignal() }); expect(extra.isError).toBe(true); expect(extra.error?.message).toContain('Only search_term');
   });
+  it('code_search schema prefers unknown locations and keeps the cloud disclosure', async () => {
+    const h = await harness(await home()); cleanups.push(() => h.close());
+    const description = h.ctx.tools.schemas().find(t => t.name === 'code_search')?.description ?? '';
+    expect(description).toContain('Call code_search FIRST');
+    expect(description).toContain('relevant file or symbol is unknown');
+    expect(description).toContain('exact file path or symbol is already known, use direct file reads or exact local search instead');
+    expect(description).toContain('one focused question per call and use the narrowest relevant folder');
+    expect(description).toContain('Read the relevant code to verify behavior before editing or answering');
+    expect(description).toContain('Cloud-assisted read-only semantic code search in the local session workspace. Selected code is sent to Devin/Windsurf cloud. Never remote workspaces.');
+  });
 });

@@ -1,6 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type {} from '@deepseek-ai/dsh-commands';
 import type {} from '@deepseek-ai/dsh-fs';
+import type {} from '@deepseek-ai/dsh-web';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { Sessions, KEY } from './session.js';
 import { WindsurfCompletion, type Completion } from './completion.js';
@@ -47,7 +48,7 @@ export async function createRuntime(ctx: Context, options: FixtureOptions = {}, 
   } });
   const syncWeb = webSearchSwitch(ctx, () => enabled(config.webSearch));
   const codeTool = defineTool({
-    name: 'code_search', description: 'Cloud-assisted read-only code search in the local session workspace. Selected code is sent to Devin/Windsurf cloud. Never remote workspaces.',
+    name: 'code_search', description: '<scope>Cloud-assisted read-only semantic code search in the local session workspace. Selected code is sent to Devin/Windsurf cloud. Never remote workspaces.</scope> <usage>Call code_search FIRST, before manual repository exploration, when the relevant file or symbol is unknown: locating behavior from a natural-language description, exploring unfamiliar code, or tracing a cross-file flow. If the exact file path or symbol is already known, use direct file reads or exact local search instead. Ask one focused question per call and use the narrowest relevant folder within the session cwd.</usage> <verification>Treat returned files and line ranges as leads, not proof of an interpretation. Read the relevant code to verify behavior before editing or answering.</verification>',
     parameters: { search_term: { type: 'string', required: true, description: 'What code to find.' }, search_folder_absolute_uri: { type: 'string', required: true, description: 'Absolute local folder contained in the session cwd.' } },
     output: {
       schema: { type: 'object', additionalProperties: false, properties: {

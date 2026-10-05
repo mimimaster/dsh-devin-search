@@ -174,6 +174,62 @@ describe('bounded host-local code search', () => {
     expect(JSON.stringify(vi.mocked(completion.complete).mock.calls)).toContain('No commands were executed');
     expect(JSON.stringify(vi.mocked(completion.complete).mock.calls)).not.toContain('FIXTURE_SECRET');
   });
+  it('denies stored and temp credential files under a custom data directory inside the workspace', async () => {
+    const data = join(dir, 'custom-agent', 'devin-search');
+    await mkdir(data, { recursive: true });
+    await writeFile(join(data, 'credentials.json'), 'STORED_SECRET=nope');
+    await writeFile(join(data, 'credential-abcdef12.tmp'), 'TEMP_SECRET=nope');
+    const workspace = await LocalWorkspace.create(dir, dir, p => p, liveSignal());
+    for (const path of [
+      '/codebase/custom-agent/devin-search/credentials.json',
+      '/codebase/custom-agent/devin-search/credential-abcdef12.tmp',
+    ]) {
+      await expect(workspace.execute({ op: 'readfile', path })).rejects.toThrow('Sensitive or generated');
+      await expect(workspace.snippet(path, 1, 1)).rejects.toThrow('Sensitive or generated');
+      await expect(workspace.execute({ op: 'rg', path, pattern: 'SECRET' })).rejects.toThrow('Sensitive or generated');
+    }
+    const listing = await workspace.execute({ op: 'ls', path: '/codebase/custom-agent/devin-search' });
+    expect(listing).not.toContain('credentials.json');
+    expect(listing).not.toContain('credential-');
+    expect(listing).not.toContain('STORED_SECRET');
+    expect(listing).not.toContain('TEMP_SECRET');
+    expect(await workspace.execute({ op: 'rg', pattern: 'STORED_SECRET' })).not.toContain('STORED_SECRET');
+    expect(await workspace.execute({ op: 'rg', pattern: 'TEMP_SECRET' })).not.toContain('TEMP_SECRET');
+    const files = await workspace.inventory();
+    expect(files.some(file => file.includes('credentials.json') || file.includes('credential-'))).toBe(false);
+  });
+  it('rejects direct and nested .pi traversal and reads while allowing sibling code', async () => {
+    await mkdir(join(dir, '.pi'));
+    await writeFile(join(dir, '.pi', 'secret.ts'), 'direct pi secret\n');
+    await writeFile(join(dir, 'sibling.ts'), 'export const sibling = 1;\n');
+    await mkdir(join(dir, 'src', '.pi'));
+    await writeFile(join(dir, 'src', '.pi', 'nested.ts'), 'nested pi secret\n');
+    const workspace = await LocalWorkspace.create(dir, dir, p => p, liveSignal());
+    await expect(LocalWorkspace.create(dir, join(dir, '.pi'), p => p, liveSignal())).rejects.toThrow('workspace');
+    await expect(LocalWorkspace.create(dir, join(dir, 'src', '.pi'), p => p, liveSignal())).rejects.toThrow('workspace');
+    for (const path of ['/codebase/.pi', '/codebase/.pi/secret.ts', '/codebase/src/.pi', '/codebase/src/.pi/nested.ts']) {
+      await expect(workspace.execute({ op: 'readfile', path })).rejects.toThrow('Sensitive or generated');
+      await expect(workspace.snippet(path, 1, 1)).rejects.toThrow('Sensitive or generated');
+      await expect(workspace.execute({ op: 'ls', path })).rejects.toThrow('Sensitive or generated');
+      await expect(workspace.execute({ op: 'tree', path })).rejects.toThrow('Sensitive or generated');
+      await expect(workspace.execute({ op: 'rg', path, pattern: 'secret' })).rejects.toThrow('Sensitive or generated');
+    }
+    const root = await workspace.execute({ op: 'ls' });
+    expect(root).toContain('/codebase/sibling.ts');
+    expect(root).toContain('/codebase/src/');
+    expect(root).not.toContain('.pi');
+    const src = await workspace.execute({ op: 'ls', path: '/codebase/src' });
+    expect(src).toContain('/codebase/src/a.ts');
+    expect(src).not.toContain('.pi');
+    expect(await workspace.execute({ op: 'tree' })).not.toContain('.pi');
+    expect(await workspace.execute({ op: 'rg', pattern: 'pi secret' })).not.toContain('secret');
+    expect(await workspace.execute({ op: 'readfile', path: '/codebase/sibling.ts', start: 1, end: 1 })).toContain('sibling');
+    expect(await workspace.execute({ op: 'readfile', path: '/codebase/src/a.ts', start: 1, end: 1 })).toContain('export function target');
+    const files = await workspace.inventory();
+    expect(files).toContain('sibling.ts');
+    expect(files).toContain('src/a.ts');
+    expect(files.some(file => file.split('/').includes('.pi'))).toBe(false);
+  });
   it('rejects absent session cwd, remote mapping, foreign absolute folder and symlink escape folder', async () => {
     const completion = loop(['<ANSWER></ANSWER>']);
     expect((await codeSearch(input(), undefined, p => p, completion, liveSignal())).status).toBe('error');

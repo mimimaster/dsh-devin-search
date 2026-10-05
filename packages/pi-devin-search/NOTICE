@@ -1,0 +1,24 @@
+dsh-devin-search is independent of DeepSeek Harness, Devin/Windsurf and piwin.
+
+Protocol field numbers, role encoding, OAuth endpoint/PKCE conventions and
+completion message design were adapted from these MIT-licensed piwin sources:
+  packages/agent-host/src/devin/oauth.ts
+  packages/tools-web/src/devin-search-provider.ts
+  packages/host-runtime/src/code-search/backends/windsurf-protobuf.ts
+  packages/host-runtime/src/code-search/backends/windsurf-protocol.ts
+  packages/host-runtime/src/code-search/completion-port.ts
+Copyright (c) 2026 Piwin contributors. See LICENSE for the MIT permission notice.
+
+The implementation is a smaller independent client with strict framing,
+bounded IO and an allowlisted local search loop. It imports no piwin package
+and reads no piwin credential file. DSH service integration was checked against
+DeepSeek Harness 0.2.1-alpha.1, reference commit
+5badb15009ae1756c3afe0ae0cef1faafc290ccc (MIT).
+
+Offline fixtures do not establish compatibility with a live provider, account
+entitlements, service availability, prices, or continued authorization.
+
+
+pi-devin-search bundles the search, OAuth, and local-workspace core from this repository into dist/extension.js.
+It does not bundle DeepSeek Harness, Cordis, or a desktop UI. Host packages @earendil-works/pi-coding-agent and
+@earendil-works/pi-ai stay external. Credential storage is plugin-owned and is not a DSH credential file.

@@ -1,8 +1,12 @@
-import type { WebSearchProvider, WebSearchSource } from '@deepseek-ai/dsh-web';
-import type { Sessions } from './session.js';
+import type { SearchSession } from './search-session.js';
 import { boundedBody, check, deadline, DevinError, fail, json, object, redact, request } from './safety.js';
+/** Structurally compatible with DSH web search types; this module does not import DSH. */
+export interface SearchArg { readonly query: string; readonly maxResults?: number }
+export interface SearchSource { readonly url: string; readonly title?: string; readonly snippet?: string; readonly publishedAt?: string }
+export interface SearchResult { readonly content?: string; readonly sources: readonly SearchSource[]; readonly truncated: boolean }
+export interface SearchProvider { readonly id: string; available(): boolean; search(request: SearchArg, signal?: AbortSignal): Promise<SearchResult> }
 export const WEB_PATH = '/exa.api_server_pb.ApiServerService/GetWebSearchResults';
-export function webProvider(sessions: Sessions, options: { hosts?: readonly string[]; fetcher?: typeof fetch; timeoutMs?: number } = {}): WebSearchProvider {
+export function webProvider(sessions: SearchSession, options: { hosts?: readonly string[]; fetcher?: typeof fetch; timeoutMs?: number } = {}): SearchProvider {
   return {
     id: 'devin', available: () => sessions.available(),
     async search({ query, maxResults }, caller) {
@@ -44,7 +48,7 @@ export function webProvider(sessions: Sessions, options: { hosts?: readonly stri
           if (!response.ok) { await response.body?.cancel(); continue; }
           const payload = object(json(await boundedBody(response, signal, 1024 * 1024)));
           if (!Array.isArray(payload?.results)) return fail('protocol', 'Invalid Devin web search schema.');
-          const sources: WebSearchSource[] = []; let valid = 0;
+          const sources: SearchSource[] = []; let valid = 0;
           const first = (row: Record<string, unknown>, keys: string[], cap: number) => {
             for (const key of keys) if (typeof row[key] === 'string' && (row[key] as string).trim()) return redact((row[key] as string).trim().slice(0, cap), [access.token]);
             return '';
