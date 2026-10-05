@@ -57,6 +57,9 @@ export async function request(url: string, init: RequestInit, signal: AbortSigna
 /** Windsurf/Codeium metadata.apiKey form. OAuth /auth/cli/token returns bare JWT. */
 export const DEVIN_SESSION_TOKEN_PREFIX = 'devin-session-token$'
 
+/** Default validity for opaque / session tokens without JWT exp (aligned with piwin 365 days). */
+export const FALLBACK_EXPIRES_MS = 365 * 24 * 60 * 60 * 1000
+
 /** Idempotent: bare JWT → `devin-session-token$…`; already-prefixed / sk-ws-* left as-is. */
 export function toDevinSessionToken(token: string): string {
   const raw = token.trim()
@@ -73,7 +76,7 @@ export function expiry(token: string, now = Date.now()): { expiresAt: number; ex
       return { expiresAt: body.exp * 1000 - 60_000, expirySource: 'jwt' };
     }
   } catch { /* Opaque sessions are not refresh grants. */ }
-  return { expiresAt: now + 24 * 60 * 60 * 1000, expirySource: 'fallback' };
+  return { expiresAt: now + FALLBACK_EXPIRES_MS, expirySource: 'fallback' };
 }
 export function object(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;

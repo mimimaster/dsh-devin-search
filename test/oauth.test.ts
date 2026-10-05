@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { oauth } from '../src/oauth.js';
-import { expiry } from '../src/safety.js';
+import { expiry, FALLBACK_EXPIRES_MS } from '../src/safety.js';
 import { body, deferred, liveSignal, server } from './helpers.js';
 
 describe('loopback PKCE OAuth (localhost only)', () => {
@@ -52,6 +52,6 @@ describe('loopback PKCE OAuth (localhost only)', () => {
   it('records JWT expiry or conservative opaque fallback, never refresh', () => {
     const token = `header.${Buffer.from(JSON.stringify({ exp: 2_000_000_000 })).toString('base64url')}.sig`;
     expect(expiry(token)).toEqual({ expiresAt: 2_000_000_000_000 - 60_000, expirySource: 'jwt' });
-    expect(expiry('opaque', 100)).toEqual({ expiresAt: 86_400_100, expirySource: 'fallback' });
+    expect(expiry('opaque', 100)).toEqual({ expiresAt: 100 + FALLBACK_EXPIRES_MS, expirySource: 'fallback' });
   });
 });

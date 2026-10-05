@@ -78,7 +78,7 @@ bundle 的 `dsh.bundle.patch` 指向 `cordis.patch.yml`，先将已有 `web` 行
 
 session 是 DSH `GrantRecord`，由 **credentials-local** 在 `$DSH_HOME/.credentials.yaml` 中保存（POSIX 0600、原子写与文件锁由 DSH 负责），不是普通 profile 配置 YAML。重启从该 store 恢复；任何 token 都不应进入日志、模型结果或普通配置。`/devin-logout` 不影响其他插件 credentials；卸载 bundle **不会**自动删 session，应先 logout。不要删除整个共享 credential 文件以清理本插件。
 
-**没有 refresh grant / 不自动 refresh：** JWT 形式的 session 使用 `exp`（提前 60 秒视为过期）；opaque token 只保守记录 **24 小时**，不保证永久有效。401/403 将匹配的 session 标为 revoked，请重新登录；普通网络错误不清除登录。短期 GetUserJwt 是搜索专用缓存，按 session token/account 隔离，最多 5 分钟；本实例收到 credential rotation/logout 时清缓存、取消搜索。多进程只能共享 durable store，并不能取消另一进程的 pending 登录；避免同时跨进程登录/登出。
+**没有 refresh grant / 不自动 refresh：** JWT 形式且携带 `exp` 的 session 提前 60 秒视为过期；无 `exp` 的 Devin Session Token（Opaque 会话凭据）与 piwin 官方机制对齐，默认记录 **365 天** 长期有效期（只要云端会话不主动注销或轮转即保持有效）。401/403 将匹配的 session 标为 revoked，请重新登录；普通网络错误不清除登录。短期 GetUserJwt 是搜索专用缓存，按 session token/account 隔离，最多 5 分钟；本实例收到 credential rotation/logout 时清缓存、取消搜索。多进程只能共享 durable store，并不能取消另一进程的 pending 登录；避免同时跨进程登录/登出。
 
 ## code_search 与数据边界
 
