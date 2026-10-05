@@ -37,7 +37,7 @@ npm ci && npm run check && npm pack
 # 产生 dsh-devin-search-0.2.6.tgz
 # Electron 独占 profile 只能从原生插件页安装，填 tarball 绝对路径。
 # 以下手动方式仅适用于非 Electron 独占 profile：
-# pnpm add /绝对路径/dsh-devin-search-0.2.6.tgz
+# pnpm add /绝对路径/dsh-devin-search-0.2.7.tgz
 # 并在 profile package.json 的 dsh.profile.bundles 追加 "dsh-devin-search"
 ```
 
