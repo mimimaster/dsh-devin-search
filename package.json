@@ -66,7 +66,6 @@
     "ignore": "7.0.5"
   },
   "peerDependencies": {
-    "@deepseek-ai/schemastery": ">=3.18.4 <4 || 3.18.5-alpha.1",
     "@deepseek-ai/cordis": ">=4.0.4 <5.0.0",
     "@deepseek-ai/dsh-agent": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1",
     "@deepseek-ai/dsh-authorization": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1",
@@ -74,7 +73,8 @@
     "@deepseek-ai/dsh-credentials": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1",
     "@deepseek-ai/dsh-fs": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1",
     "@deepseek-ai/dsh-tools": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1",
-    "@deepseek-ai/dsh-web": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1"
+    "@deepseek-ai/dsh-web": "0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-alpha.1",
+    "@deepseek-ai/schemastery": ">=3.18.4 <4 || 3.18.5-alpha.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.5-alpha.1",
@@ -89,6 +89,7 @@
     "@types/node": "22.19.0",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
+    "esbuild": "^0.28.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "5.9.3",
