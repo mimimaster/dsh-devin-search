@@ -8,6 +8,7 @@ import { webProvider } from './web.js';
 import { codeSearch } from './code-search.js';
 import { safeError } from './safety.js';
 import type { OAuthOptions } from './oauth.js';
+import { mountLoginApi } from './login-api.js';
 import { Config, enabled, webSearchSwitch, type LiveConfig } from './settings.js';
 export { Config };
 export const name = 'devin-search';
@@ -23,15 +24,20 @@ export async function createRuntime(ctx: Context, options: FixtureOptions = {}, 
   ctx.effect(() => () => { sessions.dispose(); cloud.invalidate(); });
   ctx.on('credentials/record-updated', key => { if (key === KEY) { sessions.invalidate(); cloud.invalidate(); void sessions.reload().catch(() => {}); } });
   await sessions.reload();
-  ctx.authorization.registerFlow({ key: KEY, label: 'Devin search', methods: [{ id: 'oauth', label: 'Browser login (PKCE)' }], run: session => sessions.run(session) });
+  ctx.authorization.registerFlow({ key: KEY, label: 'Devin search', methods: [{ id: 'oauth', label: 'Local browser callback (PKCE)' }, { id: 'code', label: 'Paste authorization code (remote-safe PKCE)' }], run: session => sessions.run(session) });
+  mountLoginApi(ctx, sessions);
   const commands = {
-    'devin-login': { description: 'Open Devin browser login and wait until authorization finishes.', run: (signal: AbortSignal) => sessions.login(signal) },
+    'devin-login': { description: 'Start Devin code login; use local for a same-machine browser callback.', run: (signal: AbortSignal, input = '') => {
+      const mode = input.trim();
+      if (mode && mode !== 'local') throw new Error('Use /devin-login or /devin-login local. Never paste a code into chat.');
+      return sessions.login(signal, mode === 'local' ? 'loopback' : 'code');
+    } },
     'devin-status': { description: 'Inspect Devin login state without exposing credentials.', run: () => sessions.status() },
     'devin-logout': { description: 'Cancel login/search and delete the stored Devin session.', run: async () => { await sessions.logout(); return 'Logged out; stored Devin session cleared.'; } },
     'devin-cancel': { description: 'Cancel pending Devin authorization.', run: async () => { sessions.cancel(); return 'Login cancelled.'; } },
   };
   for (const [commandName, command] of Object.entries(commands)) ctx.commands.register({ name: commandName, description: command.description, recordInput: false, handler: async invocation => {
-    try { return { kind: 'success', text: await command.run(invocation.signal) }; }
+    try { return { kind: 'success', text: await command.run(invocation.signal, invocation.rawInput) }; }
     catch (error) { return { kind: 'error', text: safeError(error) }; }
   } });
   const provider = webProvider(sessions, options.web);

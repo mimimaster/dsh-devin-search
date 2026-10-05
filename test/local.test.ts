@@ -135,9 +135,16 @@ describe('bounded host-local code search', () => {
     expect(transcript).not.toContain('FIXTURE_SECRET');
   });
   it('rejects an invalid admitted batch before executing its first valid command', async () => {
-    const completion = loop([marker({ command1: { op: 'readfile', path: '/codebase/src/a.ts' }, command2: { op: 'bash' } })]);
-    expect((await codeSearch(input(), dir, p => p, completion, liveSignal())).content).toContain('Invalid restricted_exec');
-    expect(completion.complete).toHaveBeenCalledTimes(1);
+    const completion = loop([
+      marker({ command1: { op: 'readfile', path: '/codebase/src/a.ts' }, command2: { op: 'bash' } }),
+      '[TOOL_CALLS]ANSWER{"files":[{"path":"/codebase/src/a.ts","ranges":[{"start":1,"end":3}]}]}',
+    ]);
+    const result = await codeSearch(input(), dir, p => p, completion, liveSignal());
+    expect(result.status).toBe('success');
+    const correction = JSON.stringify(vi.mocked(completion.complete).mock.calls[1]);
+    expect(correction).toContain('Invalid restricted_exec');
+    expect(correction).toContain('No commands were executed');
+    expect(correction).not.toContain('return 42');
   });
   it('refuses unsupported cloud tools immediately rather than running them in a repair turn', async () => {
     const completion = loop(['[TOOL_CALLS]bash{"command":"cat /etc/passwd"}']);

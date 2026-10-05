@@ -1,4 +1,5 @@
 import type { DevinLiveState } from './login-live-state.js'
+import type { LoginMode } from '../login-state.js'
 
 export const AUTH_URL_REGEX = /(https:\/\/app\.devin\.ai\/auth\/cli\/continue[^\s\n]+)/
 
@@ -6,7 +7,7 @@ export type LoginCardModel =
   | { readonly kind: 'running' }
   | { readonly kind: 'error'; readonly text: string }
   | { readonly kind: 'duplicate-pending' }
-  | { readonly kind: 'waiting'; readonly authUrl: string }
+  | { readonly kind: 'waiting'; readonly authUrl: string; readonly attemptId?: string; readonly mode?: LoginMode }
   | { readonly kind: 'saved'; readonly detail?: string }
   | { readonly kind: 'cancelled'; readonly text: string }
   | { readonly kind: 'plain'; readonly text: string }
@@ -45,8 +46,10 @@ export function deriveLoginCardModel(
 
   const authUrlMatch = text.match(AUTH_URL_REGEX)
   const authUrl = authUrlMatch?.[1]
+  const attemptId = /Login attempt: ([A-Za-z0-9_-]{32})(?:\s|$)/.exec(text)?.[1]
+  const mode: LoginMode = text.includes('Login mode: loopback') ? 'loopback' : 'code'
   const commandTime = options.commandTime ?? 0
-  const liveIsNewer = live.at >= commandTime
+  const liveIsNewer = live.at >= commandTime && (!live.attemptId || live.attemptId === attemptId)
   const liveConfirmsAuth = live.phase === 'authorized' && liveIsNewer
   const liveConfirmsCancel = (live.phase === 'cancelled' || live.phase === 'logged-out') && liveIsNewer
 
@@ -66,7 +69,7 @@ export function deriveLoginCardModel(
           : '登录等待已取消。',
       }
     }
-    return { kind: 'waiting', authUrl }
+    return { kind: 'waiting', authUrl, ...(attemptId ? { attemptId, mode } : {}) }
   }
 
   if (liveConfirmsAuth && (lower.includes('open this url') || lower.includes('login pending'))) {

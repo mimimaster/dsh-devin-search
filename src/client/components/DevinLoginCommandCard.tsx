@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useState } from 'react'
 import { DevinIcon, ExternalLinkIcon, CopyIcon, CheckIcon, ShieldIcon } from './icons.js'
 import { deriveLoginCardModel, AUTH_URL_REGEX } from '../login-card-model.js'
 import {
@@ -6,7 +6,8 @@ import {
   subscribeDevinLiveState,
   type DevinLiveState,
 } from '../login-live-state.js'
-import { startLoginStatusPoll } from '../login-status-poll.js'
+import { publishLoginState, startLoginApiPoll, submitLoginCode } from '../login-api.js'
+import type { LoginState } from '../../login-state.js'
 
 interface CommandNode {
   kind: 'command'
@@ -33,17 +34,42 @@ function useDevinLiveState(): DevinLiveState {
 export const DevinLoginCommandCard = memo(function DevinLoginCommandCard({ node }: DevinLoginCommandCardProps) {
   const [copied, setCopied] = useState(false)
   const live = useDevinLiveState()
-  const model = deriveLoginCardModel(node.outcome, live, { commandTime: node.time ?? 0 })
+  const [remote, setRemote] = useState<LoginState>()
+  const [code, setCode] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [apiError, setApiError] = useState('')
+  const codeId = useId()
+  const baseModel = deriveLoginCardModel(node.outcome, live, { commandTime: node.time ?? 0 })
+  const model = baseModel.kind === 'waiting' && remote?.phase === 'error'
+    ? { kind: 'error' as const, text: remote.detail ?? '授权失败，请重新执行 /devin-login。' }
+    : baseModel
+  const attemptId = baseModel.kind === 'waiting' ? baseModel.attemptId : undefined
 
   const authUrl = model.kind === 'waiting'
     ? model.authUrl
     : (node.outcome?.text ?? '').match(AUTH_URL_REGEX)?.[1]
 
-  // Real-time: poll loopback /status while this row is still waiting.
+  // Status stays on the authenticated DSH connection, even if the browser is on a phone.
   useEffect(() => {
-    if (model.kind !== 'waiting' || !authUrl) return
-    return startLoginStatusPoll(authUrl)
-  }, [model.kind, authUrl])
+    if (model.kind !== 'waiting' || !attemptId) return
+    return startLoginApiPoll(attemptId, state => { setRemote(state); setApiError('') }, setApiError)
+  }, [model.kind, attemptId])
+
+  useEffect(() => { if (model.kind !== 'waiting') setCode('') }, [model.kind])
+
+  const handleSubmitCode = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!attemptId || submitting || !code.trim()) return
+    setSubmitting(true); setApiError('')
+    // Clear the field before sending; never persist the code or send it as a chat command.
+    const entered = code.trim(); setCode('')
+    try {
+      const state = await submitLoginCode(attemptId, entered)
+      setRemote(state); publishLoginState(state)
+    } catch {
+      setApiError('提交未确认，请检查登录状态；如仍在等待，可重新粘贴授权码。')
+    } finally { setSubmitting(false) }
+  }
 
   const handleOpenBrowser = useCallback(() => {
     if (authUrl) window.open(authUrl, '_blank', 'noopener,noreferrer')
@@ -84,7 +110,7 @@ export const DevinLoginCommandCard = memo(function DevinLoginCommandCard({ node 
           </div>
           <span className="ink-seal seal-lamp">
             <span className="ink-grind" />
-            <span>等待浏览器授权…</span>
+            <span>正在准备授权链接…</span>
           </span>
         </div>
 
@@ -92,10 +118,10 @@ export const DevinLoginCommandCard = memo(function DevinLoginCommandCard({ node 
           <div className="ink-ledger-row">
             <span className="ink-ledger-key">
               <span style={{ color: 'var(--ink-pine)' }}>①</span>
-              <span>本地安全回调</span>
+              <span>安全授权流程</span>
             </span>
             <span className="ink-ledger-val" style={{ color: 'var(--ink-pine)' }}>
-              127.0.0.1 临时端口已绑定监听
+              正在创建当前登录请求
             </span>
           </div>
           <div className="ink-ledger-row">
@@ -104,7 +130,7 @@ export const DevinLoginCommandCard = memo(function DevinLoginCommandCard({ node 
               <span>浏览器账户授权</span>
             </span>
             <span className="ink-ledger-val" style={{ color: 'var(--ink-lamp)' }}>
-              已尝试自动打开浏览器，等待点击允许
+              链接就绪后请点击授权按钮
             </span>
           </div>
           <div className="ink-ledger-row">
@@ -113,13 +139,13 @@ export const DevinLoginCommandCard = memo(function DevinLoginCommandCard({ node 
               <span>交换凭据并保存</span>
             </span>
             <span className="ink-ledger-val" style={{ color: 'var(--ink-t3)' }}>
-              等待授权回调触发
+              授权完成后由服务器安全保存
             </span>
           </div>
         </div>
 
         <div className="devin-tip">
-          案头注：请在打开的 Devin 页面完成登录；成功后本卡片会自动翻面归档。若未自动打开浏览器，可输入 <code>/devin-cancel</code> 重试。
+          正在准备授权链接，不会在服务器上尝试打开浏览器。
         </div>
       </div>
     )
@@ -251,7 +277,7 @@ export const DevinLoginCommandCard = memo(function DevinLoginCommandCard({ node 
         <div className="devin-header">
           <div className="devin-title">
             <DevinIcon size={22} />
-            <span>Devin 浏览器鉴权</span>
+            <span>{model.mode === 'code' ? 'Devin 授权码登录' : 'Devin 浏览器鉴权'}</span>
           </div>
           <span className="ink-seal seal-lamp">
             <span className="ink-grind" />
@@ -260,7 +286,7 @@ export const DevinLoginCommandCard = memo(function DevinLoginCommandCard({ node 
         </div>
 
         <div className="devin-body">
-          请在浏览器中完成账户授权。授权完成后本地服务将自动交换并保存凭据，本卡片会自动完成同步。
+          {model.mode === 'code' ? '点击下方按钮，在 Devin 页面完成授权后复制一次性授权码，回到这里粘贴。服务器会安全保存凭据，授权码不会进入聊天记录。' : '请在运行 DSH 的同一台设备上打开授权页。本机回调完成后，服务器保存凭据并同步状态。'}
         </div>
 
         <div className="devin-actions">
@@ -296,8 +322,22 @@ export const DevinLoginCommandCard = memo(function DevinLoginCommandCard({ node 
           </div>
         </div>
 
-        <div className="devin-tip">
-          正在监听本地回调端口… 浏览器完成授权后无需手动刷新，卡片将在 1 秒内自动归档。
+        {model.mode === 'code' && attemptId ? (
+          <form className="devin-code-form" onSubmit={handleSubmitCode}>
+            <label htmlFor={codeId}>一次性授权码</label>
+            <input id={codeId} type="password" autoComplete="off" autoCapitalize="none" spellCheck={false}
+              value={code} onChange={event => setCode(event.target.value)} maxLength={8192}
+              disabled={submitting || remote?.phase === 'exchanging' || remote?.phase === 'cancelled'}
+              placeholder="粘贴 Devin 页面显示的授权码" aria-describedby={`${codeId}-help`} />
+            <div id={`${codeId}-help`} className="devin-tip">授权码仅可使用一次，官方提示 5 分钟内有效。请勿粘贴会话 token。</div>
+            <button type="submit" className="devin-btn devin-btn-primary" disabled={!code.trim() || submitting || remote?.phase === 'exchanging' || remote?.phase === 'cancelled'}>
+              {submitting || remote?.phase === 'exchanging' ? '正在验证并保存…' : '提交授权码'}
+            </button>
+          </form>
+        ) : null}
+        {apiError ? <div role="alert" className="devin-tip">{apiError}</div> : null}
+        <div className="devin-tip" aria-live="polite">
+          {attemptId ? '登录状态通过 DSH 安全连接同步；取消请执行 /devin-cancel。' : '这是旧版登录卡片，请取消后重新执行 /devin-login。'}
         </div>
       </div>
     )

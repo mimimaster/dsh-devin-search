@@ -39,7 +39,7 @@ describe('genuine Cordis seams + credentials-local persistence', () => {
     expect(result.content).toEqual([{ type: 'text', text: 'Error: Invalid Devin JSON response.' }]);
     expect(result).not.toHaveProperty('value');
   });
-  it('native slash login waits until callback; atomic 0600 save, restart, shared web/code search and logout', async () => {
+  it('local slash login returns its URL before callback; atomic 0600 save, restart, shared web/code search and logout', async () => {
     const dir = await home(); await writeFile(join(dir, 'a.ts'), 'export const target = 42;\n');
     let streamCalls = 0; let webToken = ''; let jwtToken = '';
     const api = await server((req, res) => { void body(req).then(bytes => {
@@ -55,13 +55,12 @@ describe('genuine Cordis seams + credentials-local persistence', () => {
     const options = { oauth: { port: 0, webBase: api.base, apiBase: api.base }, web: { hosts: [api.base] }, cloud: { base: api.base } };
     const first = await harness(dir, options);
     expect(first.ctx.authorization.describe(KEY)?.methods[0]?.id).toBe('oauth');
-    // Login stays running until OAuth finishes so the UI card can settle on the final outcome.
-    const loginP = command(first, '/devin-login');
-    await vi.waitFor(() => expect(first.sessions.getPendingAuthUrl()).toBeTruthy());
+    const login = await command(first, '/devin-login local');
+    expect(login?.result.kind).toBe('success');
+    expect(login?.result.text).toContain('Login pending.');
+    expect(first.sessions.getPendingAuthUrl()).toBeTruthy();
     expect((await command(first, '/devin-status'))?.result).toMatchObject({ text: 'Login pending.' });
     await callback(first.sessions.getPendingAuthUrl()!);
-    const login = await loginP;
-    expect(login?.result).toMatchObject({ kind: 'success', text: 'Login saved.' });
     await saved(first);
     expect((await stat(join(dir, '.credentials.yaml'))).mode & 0o777).toBe(0o600);
     // The only secret-bearing YAML is the HOST-managed credential store, not composition.
@@ -109,7 +108,7 @@ describe('genuine Cordis seams + credentials-local persistence', () => {
   });
   it('plugin unload removes flow/commands/tools/provider, cancels pending server; production export mounts too', async () => {
     const dir = await home(); const h = await harness(dir, { oauth: { port: 0 } }); cleanups.push(() => h.close());
-    const loginP = command(h, '/devin-login');
+    const loginP = command(h, '/devin-login local');
     await vi.waitFor(() => expect(h.sessions.getPendingAuthUrl()).toBeTruthy());
     const url = new URL(h.sessions.getPendingAuthUrl()!);
     await h.plugin.dispose();

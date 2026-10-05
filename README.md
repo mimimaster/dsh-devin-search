@@ -65,12 +65,16 @@ bundle 的 `dsh.bundle.patch` 指向 `cordis.patch.yml`，先将已有 `web` 行
 
 ## 登录与清理
 
-1. 在 DSH 交互界面运行 **`/devin-login`**。
-2. 命令保持运行并尝试打开浏览器；完成授权后才显示登录已保存。不能将 URL/token 粘贴进模型对话。
-3. **`/devin-status`** 查看 pending、已保存、过期或 provider 拒绝状态。也支持 DSH 原生授权 UI 的 Devin search / Browser login；两入口使用同一 authorization flow 与取消/原子 commit machinery。
-4. **`/devin-cancel`** 取消 pending；**`/devin-logout`** 同时取消本插件实例的登录/搜索、等待已进入 commit 的写入，然后只删除 `devin-search/session`。
+1. 在 DSH Web / 桌面交互界面运行 **`/devin-login`**。命令立即返回授权链接，不会在服务器上打开浏览器，也不会一直占着命令等待授权。
+2. 在卡片点击 **在浏览器中打开授权**，完成 Devin 授权后复制官方页面显示的一次性授权码。
+3. 回到卡片的 **一次性授权码**安全输入框粘贴，点击 **提交授权码**。授权码通过 DSH 现有受认证的同源 API 提交，不进入 slash 命令、聊天历史或日志；请勿把授权码/session token 发进模型对话。只有服务器完成交换和凭据写入后，卡片才显示成功。
+4. **`/devin-status`** 查看状态；**`/devin-cancel`** 取消 pending；**`/devin-logout`** 同时取消本实例的登录/搜索、等待已进入 commit 的写入，然后只删除 `devin-search/session`。
 
-PKCE S256 + 随机 state，监听 `127.0.0.1:59653/callback`；端口占用则使用随机端口。错误 state 请求返回 400 但不终止合法尝试。登录含 exchange 的总期限 5 分钟；取消/超时/unload 会关闭回调服务器。
+**服务器 + 手机：** 默认使用 Devin 官方省略 `redirect_uri` 的授权码模式。Devin 的 CLI 页面只允许 `http://127.0.0.1:<端口>/callback`，不能直接改成服务器域名。授权码模式不创建回调监听；状态通过 DSH Connection API 同步，不会访问手机的临时 localhost 端口。依赖 DSH 的 Connection Fetch 路由及浏览器认证（已用 `0.2.1-alpha.1` SDK 验证）；远程传输请使用 HTTPS 或安全隧道，不能裸露未经保护的 HTTP。无 Web 通道的 CLI 请使用下面的原生授权交互。
+
+**本机模式：** 浏览器确实与 DSH 在同一台机器时可使用 **`/devin-login local`**，仍需点击返回的授权链接。本机回调保留 `127.0.0.1:59653/callback`，占用则随机端口；错误 state 返回 400 但不终止合法尝试。DSH 原生授权 UI 的 Devin search 同时提供 Local browser callback 与 Paste authorization code 两个 PKCE 方法；原生码输入使用 `secret` prompt，共用同一 authorization flow 和凭据 commit。
+
+两个模式都使用 PKCE S256、每次独立的 verifier/state 和最多 5 分钟的登录期限。回填绑定当前随机 attemptId，只接受一次；重试必须创建新尝试。取消/超时/unload 会退役等待和本机监听；成功交换后的 token 仅由服务器保存。
 
 session 是 DSH `GrantRecord`，由 **credentials-local** 在 `$DSH_HOME/.credentials.yaml` 中保存（POSIX 0600、原子写与文件锁由 DSH 负责），不是普通 profile 配置 YAML。重启从该 store 恢复；任何 token 都不应进入日志、模型结果或普通配置。`/devin-logout` 不影响其他插件 credentials；卸载 bundle **不会**自动删 session，应先 logout。不要删除整个共享 credential 文件以清理本插件。
 
@@ -111,6 +115,7 @@ npm pack --dry-run
 fixture 使用 localhost、合成 token 与独立临时目录，不读取真实 `.env`/token，也不调用付费 API：
 
 - OAuth code/state/S256、wrong-state 抗干扰、port fallback、timeout/preabort、exchange 取消与 server cleanup。
+- 远程无回调 PKCE、授权码一次性消费/错误尝试隔离/旧码不能用于新 verifier、认证 API 拒绝匿名请求、敏感输入不进入聊天记录、取消/过期/退出竞态、同源状态同步与安全输入卡片。
 - 真正 Cordis authorization/commands/web/tools/fs services，native flow 与 slash login、注册/unload、原子 commit/logout 竞态、credentials-local 0600 和 restart/shared login。
 - Web 双主机、aliases/schema/URL/result cap、abort/reader、失效与 error redaction。
 - Protobuf/Connect/gzip、tool markers、trailer/partial/bytes cap、JWT 缓存跨账户/rotation/revocation。
@@ -118,7 +123,9 @@ fixture 使用 localhost、合成 token 与独立临时目录，不读取真实 
 
 **线上 smoke（2026-10-04，本机）：** 已用 DSH 存储的会话真实调用网页搜索；代码搜索在 `scripts/` 下经多轮云端工具调用返回 `build-client.mjs` 第 14–17 行，本地再次读取校验。这不代表非公开协议永久兼容，也不代表任意大型工作区可绕过上述搜索配额。
 
-**未验证：** 服务默认模型/协议持续兼容、账户额度/计费、Windows 平台 ACL/路径行为。离线测试和线上 smoke 分开记录，不能相互替代。参考与许可见 `NOTICE` / `LICENSE`。
+**远程登录隔离预览：** `npm run build` 后执行 `node scripts/preview-remote-login.mjs /安装目录/@deepseek-ai/dsh-client-connection/lib/index.js`（项目已安装该 SDK 时可省略路径），打开脚本输出的 loopback 测试入口。使用真实 DSH Connection 的 Host/Origin/浏览器认证、当前插件卡片/API 和独立临时凭据库，但提供方和授权码均为模拟值；该脚本仅用于本机 QA，不能部署为生产服务。
+
+**未验证：** 真实 Devin 账号的无回调授权码签发/换码完整链路（隔离模拟不能替代）、服务默认模型/协议持续兼容、账户额度/计费、Windows 平台 ACL/路径行为。离线测试和线上 smoke 分开记录，不能相互替代。参考与许可见 `NOTICE` / `LICENSE`。
 
 ---
 

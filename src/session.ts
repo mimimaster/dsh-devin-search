@@ -1,8 +1,9 @@
-import { execFile } from 'node:child_process'
+import { randomBytes } from 'node:crypto';
 import { credentialKey, type CredentialProvider } from '@deepseek-ai/dsh-credentials';
 import type { AuthorizationSession, AuthorizationService } from '@deepseek-ai/dsh-authorization';
 import type { Context } from '@deepseek-ai/cordis';
-import { oauth, type OAuthOptions } from './oauth.js';
+import { oauth, oauthCode, validateCode, type OAuthOptions } from './oauth.js';
+import type { LoginMode, LoginState } from './login-state.js';
 import { abortable, check, deadline, expiry, fail, object, safeError, toDevinSessionToken } from './safety.js';
 
 export const KEY = credentialKey('devin-search', 'session');
@@ -13,15 +14,8 @@ function grant(record: Awaited<ReturnType<CredentialProvider['readRecord']>>): G
   return p as unknown as Grant;
 }
 
-/** Best-effort browser open so the user does not need a frozen URL card. */
-function openExternal(url: string): void {
-  try {
-    if (process.platform === 'darwin') execFile('open', [url], () => {})
-    else if (process.platform === 'win32') execFile('cmd', ['/c', 'start', '', url], () => {})
-    else execFile('xdg-open', [url], () => {})
-  } catch {
-    // ignore — slash UI still shows a running "waiting for browser" state
-  }
+interface LoginAttempt extends LoginState {
+  acceptCode?: (code: string) => void;
 }
 
 /** One owner for native flow AND slash-command login; never an independent auth fallback. */
@@ -39,6 +33,7 @@ export class Sessions {
   private last = 'Not logged in.';
   /** Auth continue URL for the in-flight slash login (tests + optional UI). */
   private pendingAuthUrl?: string
+  private loginAttempt?: LoginAttempt;
   constructor(private readonly ctx: Context, private readonly options: OAuthOptions = {}) {}
   /** In-flight browser login URL, if any. */
   getPendingAuthUrl(): string | undefined { return this.pendingAuthUrl }
@@ -89,11 +84,16 @@ export class Sessions {
     const epoch = this.epoch; const controller = new AbortController(); this.attempt = controller;
     const signal = AbortSignal.any([session.signal, controller.signal]);
     this.last = 'Login pending.';
+    const attempt: LoginAttempt = { attemptId: randomBytes(24).toString('base64url'), mode: session.method === 'code' ? 'code' : 'loopback', phase: 'pending' };
+    this.loginAttempt = attempt;
     try {
-      const token = await oauth(signal, url => {
-        this.pendingAuthUrl = url
-        session.notify({ message: 'Continue Devin login in your browser.', url })
-      }, this.options);
+      const notify = (url: string) => {
+        this.pendingAuthUrl = url;
+        session.notify({ message: attempt.mode === 'code' ? 'Open Devin in your browser, then paste the one-time authorization code into DSH.' : 'Continue Devin login in your browser.', url });
+      };
+      const token = attempt.mode === 'code'
+        ? await oauthCode(signal, notify, life => session.prompt({ kind: 'secret', message: 'Paste the one-time Devin authorization code (not a session token).', signal: life }), this.options)
+        : await oauth(signal, notify, this.options);
       check(signal);
       await this.locked(async () => {
         check(signal);
@@ -103,15 +103,21 @@ export class Sessions {
         const sessionToken = toDevinSessionToken(token)
         await session.commit({ kind: 'grant', payload: { version: 1, token: sessionToken, ...expiry(sessionToken) } });
       });
-      await this.reload(); this.last = 'Login saved.';
-    } catch (error) { this.last = safeError(error); throw new Error(this.last); }
-    finally { if (this.attempt === controller) this.attempt = undefined; }
+      await this.reload();
+      attempt.phase = epoch === this.epoch ? 'authorized' : 'cancelled';
+      if (epoch === this.epoch) this.last = 'Login saved.';
+    } catch (error) {
+      attempt.phase = signal.aborted ? 'cancelled' : 'error';
+      attempt.detail = safeError(error);
+      if (epoch === this.epoch) this.last = attempt.detail;
+      throw error;
+    } finally {
+      attempt.acceptCode = undefined;
+      if (this.attempt === controller) { this.attempt = undefined; this.pendingAuthUrl = undefined; }
+    }
   }
-  /**
-   * Slash `/devin-login`: stay in-flight until OAuth finishes so the command card
-   * flips from running → success/cancel via durable outcome (no frozen URL row).
-   */
-  async login(signal: AbortSignal): Promise<string> {
+  /** Slash login returns a safe URL immediately; the authorization seam owns the background attempt. */
+  async login(signal: AbortSignal, mode: LoginMode = 'code'): Promise<string> {
     check(signal);
     if (this.ctx.authorization.describe(KEY)?.inFlight || this.background) {
       return 'Login already pending; use /devin-status or /devin-cancel.';
@@ -121,36 +127,57 @@ export class Sessions {
       return `Already logged in. Expires ${new Date(this.snapshot.expiresAt).toISOString()} (${this.snapshot.expirySource}; no automatic refresh).`;
     }
 
+    // reload() yields: recheck so concurrent commands cannot start two owners.
+    if (this.ctx.authorization.describe(KEY)?.inFlight || this.background) return 'Login already pending; use /devin-status or /devin-cancel.';
+    if (this.disposed || this.clearing) return fail('cancelled', 'Devin login is unavailable during logout or unload.');
     this.pendingAuthUrl = undefined;
+    let ready!: (url: string) => void; let rejectReady!: (error: unknown) => void;
+    const urlReady = new Promise<string>((resolve, reject) => { ready = resolve; rejectReady = reject; });
     const flow = this.ctx.authorization.begin({
-      key: KEY,
+      key: KEY, method: mode === 'code' ? 'code' : 'oauth',
       interaction: {
-        notify: notice => {
-          if (!notice.url) return
-          this.pendingAuthUrl = notice.url
-          openExternal(notice.url)
+        notify: notice => { if (notice.url) ready(notice.url); },
+        prompt: question => {
+          const attempt = this.loginAttempt;
+          if (!attempt || attempt.mode !== 'code' || question.kind !== 'secret') return Promise.reject(new Error('Unexpected Devin authorization prompt.'));
+          const pending = new Promise<string>(resolve => { attempt.acceptCode = resolve; });
+          return abortable(pending, question.signal ?? this.attempt!.signal);
         },
-        prompt: async () => { throw new Error('This flow does not use prompts.'); },
       },
-    })
-    this.background = flow.then(() => {}, () => {})
+    });
+    const background = flow.then(() => {}, () => {}).finally(() => { if (this.background === background) this.background = undefined; });
+    this.background = background;
+    void flow.then(() => rejectReady(new Error('Devin authorization ended before its URL was ready.')), error => rejectReady(error));
     try {
-      const outcome = await abortable(flow, signal)
-      if (outcome.status === 'authorized') {
-        this.last = 'Login saved.'
-        return 'Login saved.'
-      }
-      this.last = 'Login cancelled.'
-      return 'Login cancelled.'
-    } catch (error) {
-      this.cancel()
-      throw error
-    } finally {
-      this.pendingAuthUrl = undefined
-      if (this.background) this.background = undefined
-    }
+      const url = await abortable(urlReady, signal); check(signal);
+      const attempt = this.loginAttempt!;
+      return `Login pending.\nLogin attempt: ${attempt.attemptId}\nLogin mode: ${attempt.mode}\nOpen this URL: ${url}`;
+    } catch (error) { this.cancel(); throw error; }
   }
-  cancel(): void { this.epoch++; this.attempt?.abort(); this.ctx.authorization.cancel(KEY); this.last = 'Login cancelled.'; }
+  /** Only used by the authenticated Connection API, never by a chat command. */
+  loginState(attemptId: string): LoginState | undefined {
+    const attempt = this.loginAttempt;
+    if (!attempt || attempt.attemptId !== attemptId) return;
+    return { attemptId, mode: attempt.mode, phase: attempt.phase, ...(attempt.detail ? { detail: attempt.detail } : {}) };
+  }
+  async submitCode(attemptId: string, value: unknown, signal: AbortSignal): Promise<LoginState> {
+    check(signal);
+    const attempt = this.loginAttempt;
+    if (!attempt || attempt.attemptId !== attemptId || attempt.mode !== 'code' || attempt.phase !== 'pending' || !attempt.acceptCode || !this.background) return fail('login', 'Devin login attempt is no longer waiting for a code.');
+    const code = validateCode(value);
+    const accept = attempt.acceptCode;
+    const background = this.background;
+    attempt.acceptCode = undefined; attempt.phase = 'exchanging';
+    accept(code);
+    // A disconnected submit request does not cancel a credential commit already in flight.
+    await abortable(background, signal);
+    return { attemptId, mode: attempt.mode, phase: attempt.phase, ...(attempt.detail ? { detail: attempt.detail } : {}) };
+  }
+  cancel(): void {
+    this.epoch++;
+    if (this.loginAttempt && ['pending', 'exchanging'].includes(this.loginAttempt.phase)) { this.loginAttempt.phase = 'cancelled'; this.loginAttempt.acceptCode = undefined; }
+    this.attempt?.abort(); this.ctx.authorization.cancel(KEY); this.last = 'Login cancelled.';
+  }
   async logout(): Promise<void> {
     this.clearing = true; this.cancel(); this.invalidate();
     try { await this.locked(() => this.ctx.credentials.deleteRecord(KEY)); this.last = 'Logged out; stored Devin session cleared.'; }

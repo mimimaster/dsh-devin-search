@@ -1,6 +1,6 @@
 {
   "name": "dsh-devin-search",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "DSH Devin OAuth + shared web_search / code_search bundle",
   "repository": {
     "type": "git",

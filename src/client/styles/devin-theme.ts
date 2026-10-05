@@ -523,6 +523,17 @@ export function injectDevinStyles(): void {
       text-transform: uppercase;
     }
 
+    .devin-code-form { display: grid; gap: 10px; min-width: 0; }
+    .devin-code-form label { color: var(--ink-t1); font-weight: 600; }
+    .devin-code-form input {
+      box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px;
+      border: 1px solid var(--ink-l2); border-radius: var(--r-control, 7px);
+      padding: 10px 12px; font: 16px var(--ink-mono); color: var(--ink-t1); background: var(--ink-s3);
+    }
+    .devin-code-form input:focus-visible { outline: 2px solid var(--ink-zhu); outline-offset: 2px; }
+    .devin-code-form .devin-btn { min-height: 44px; }
+    .devin-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
     .devin-url-box {
       font-family: var(--ink-mono);
       font-size: 11.5px;

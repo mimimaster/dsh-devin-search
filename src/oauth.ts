@@ -25,6 +25,37 @@ async function closeServer(server: Server): Promise<void> {
   await new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); })
 }
 
+/** Official no-redirect flow: code is entered on the initiating, authenticated DSH surface. */
+export async function oauthCode(signal: AbortSignal, notify: (url: string) => void, prompt: (signal: AbortSignal) => Promise<string>, options: OAuthOptions = {}): Promise<string> {
+  const life = deadline(signal, options.timeoutMs ?? 300_000); check(life);
+  const verifier = randomBytes(64).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  const url = new URL('/auth/cli/continue', options.webBase ?? 'https://app.devin.ai');
+  url.search = new URLSearchParams({ state: randomBytes(32).toString('base64url'), prompt: 'select_account', code_challenge: challenge, code_challenge_method: 'S256' }).toString();
+  notify(url.toString());
+  const code = validateCode(await abortable(prompt(life), life)); check(life);
+  return exchangeCode(code, verifier, life, options);
+}
+
+/** Never include a supplied code in validation errors. */
+export function validateCode(value: unknown): string {
+  if (typeof value !== 'string' || value.length > 8192) return fail('bounds', 'Invalid Devin authorization code.');
+  const code = value.trim();
+  if (!code || /[\s\x00-\x1f\x7f]/.test(code)) return fail('bounds', 'Invalid Devin authorization code.');
+  return code;
+}
+
+async function exchangeCode(code: string, verifier: string, signal: AbortSignal, options: OAuthOptions): Promise<string> {
+  const response = await request(new URL('/auth/cli/token', options.apiBase ?? 'https://api.devin.ai').toString(), {
+    method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ code, code_verifier: verifier }),
+  }, signal, options.fetcher);
+  if (!response.ok) { await response.body?.cancel(); return fail('network', 'Devin token exchange failed. Please retry login.'); }
+  const data = object(json(await boundedBody(response, signal, 64 * 1024)));
+  if (typeof data?.token !== 'string' || !data.token || data.token.length > 16_384) return fail('protocol', 'Devin token exchange returned no valid session.');
+  return data.token;
+}
+
 /** Protocol adapted from piwin packages/agent-host/src/devin/oauth.ts. No auth-file access. */
 export async function oauth(signal: AbortSignal, notify: (url: string) => void, options: OAuthOptions = {}): Promise<string> {
   const life = deadline(signal, options.timeoutMs ?? 300_000); check(life);
@@ -123,25 +154,10 @@ export async function oauth(signal: AbortSignal, notify: (url: string) => void, 
     url.search = new URLSearchParams({ state, redirect_uri: `http://127.0.0.1:${address.port}/callback`, prompt: 'select_account', code_challenge: challenge, code_challenge_method: 'S256' }).toString();
     notify(url.toString());
     const code = await abortable(codeReady, life); check(life);
-    const response = await request(new URL('/auth/cli/token', options.apiBase ?? 'https://api.devin.ai').toString(), {
-      method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ code, code_verifier: verifier }),
-    }, life, options.fetcher);
-    if (!response.ok) {
-      await response.body?.cancel()
-      mark('error')
-      holdStatusThenClose()
-      return fail('network', 'Devin token exchange failed. Please retry login.')
-    }
-    const data = object(json(await boundedBody(response, life, 64 * 1024)));
-    if (typeof data?.token !== 'string' || !data.token || data.token.length > 16_384) {
-      mark('error')
-      holdStatusThenClose()
-      return fail('protocol', 'Devin token exchange returned no valid session.')
-    }
+    const token = await exchangeCode(code, verifier, life, options);
     mark('authorized')
     holdStatusThenClose()
-    return data.token;
+    return token;
   } catch (error) {
     if (phase === 'pending') mark(life.aborted ? 'cancelled' : 'error')
     if (!closed && phase !== 'pending') holdStatusThenClose()

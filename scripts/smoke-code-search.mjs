@@ -33,11 +33,19 @@ try {
   const completion = {
     async complete(...args) {
       const text = await cloud.complete(...args)
-      const marker = toolMarker(text)
+      let marker
+      try { marker = toolMarker(text) }
+      catch (error) {
+        if (process.env.DSH_SMOKE_TRACE === '1') console.log('Malformed tool response (credential-redacted, capped):', text.slice(0, 8192))
+        console.log('Cloud turn', ++turns, 'response: malformed tool marker')
+        return text
+      }
       console.log('Cloud turn', ++turns, 'response:', marker?.name ?? 'final text')
+      if (process.env.DSH_SMOKE_TRACE === '1' && marker?.name === 'ANSWER') console.log('Answer references:', JSON.stringify(marker.args))
       if (process.env.DSH_SMOKE_TRACE === '1' && marker?.name === 'restricted_exec') {
         console.log('Command scopes:', JSON.stringify(Object.entries(marker.args).map(([key, value]) => ({
           key, op: value?.op, path: typeof value?.path === 'string' && value.path.startsWith('/codebase') ? value.path : '(default/invalid)',
+          start: value?.start, end: value?.end,
         }))))
       }
       return text

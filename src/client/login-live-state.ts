@@ -13,6 +13,7 @@ export interface DevinLiveState {
   /** Session event time of the publisher; older cards must not clobber newer. */
   readonly at: number
   readonly expiresAt?: string
+  readonly attemptId?: string
 }
 
 let state: DevinLiveState = { phase: 'unknown', at: 0 }
@@ -28,20 +29,15 @@ export function subscribeDevinLiveState(listener: () => void): () => void {
 }
 
 /** Publish only if `at` is at least as new as the last publication. */
-export function publishDevinLiveState(next: {
-  readonly phase: DevinLivePhase
-  readonly at: number
-  readonly expiresAt?: string
-}): void {
+export function publishDevinLiveState(next: DevinLiveState): void {
   if (next.at < state.at) return
   const expiresAt = next.expiresAt
-  const candidate: DevinLiveState = expiresAt === undefined
-    ? { phase: next.phase, at: next.at }
-    : { phase: next.phase, at: next.at, expiresAt }
+  const candidate: DevinLiveState = { phase: next.phase, at: next.at, ...(expiresAt === undefined ? {} : { expiresAt }), ...(next.attemptId ? { attemptId: next.attemptId } : {}) }
   if (
     candidate.phase === state.phase
     && candidate.at === state.at
     && candidate.expiresAt === state.expiresAt
+    && candidate.attemptId === state.attemptId
   ) {
     return
   }
