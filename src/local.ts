@@ -174,7 +174,7 @@ export class LocalWorkspace {
       if ((await lstat(await this.fence(rel))).isDirectory()) return this.retain('Path is a directory, not a file. Use ls or tree here to discover a file, then readfile on that exact path.');
       const start = cmd.start ?? 1; const end = cmd.end ?? start + 199;
       if (end < start || end - start > 399) return fail('bounds', 'Read window exceeds 400 lines.');
-      return this.retain((await this.text(rel)).split('\n').slice(start - 1, end).map((l, i) => `${start + i}: ${l}`).join('\n'));
+      return this.retain((await this.text(rel, true, true)).split('\n').slice(start - 1, end).map((l, i) => `${start + i}: ${l}`).join('\n'));
     }
     if (cmd.op === 'rg' && !cmd.pattern) return fail('bounds', 'Literal rg requires a nonempty pattern.');
     const scan: Scan = { entries: 0, files: 0, partial: false }; const out: string[] = [];
@@ -194,7 +194,8 @@ export class LocalWorkspace {
       try { text = await this.text(file, true, true); }
       catch (error) {
         check(this.signal);
-        // Skip unusable text, not quota, path-race or cancellation failures.
+        if (error instanceof Error && error.message.startsWith('Total file read budget')) { scan.partial = true; break; }
+        // Skip unusable text, not path-race or cancellation failures.
         if (error instanceof Error && /^(File is not regular text|Binary files|Non-UTF8 files)/.test(error.message)) continue;
         throw error;
       }
@@ -209,7 +210,7 @@ export class LocalWorkspace {
   async snippet(virtual: string, start: number, end: number): Promise<{ path: string; start: number; end: number; content: string }> {
     const rel = this.virtual(virtual); await this.prepare(rel);
     if (end < start || start < 1 || end - start > 399) return fail('bounds', 'Answer range exceeds 400 lines.');
-    const path = await this.fence(rel); const lines = (await this.text(rel)).split('\n');
+    const path = await this.fence(rel); const lines = (await this.text(rel, true, true)).split('\n');
     if (end > lines.length) return fail('bounds', 'Answer range exceeds file length.');
     return { path, start, end, content: lines.slice(start - 1, end).map((l, i) => `${start + i}: ${l}`).join('\n') };
   }

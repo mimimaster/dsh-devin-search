@@ -44,6 +44,12 @@ describe('bounded host-local code search', () => {
     expect(() => parseStructuredAnswer({ files: [], shell: 'bash' })).toThrow();
     const escaped = loop(['[TOOL_CALLS]ANSWER{"files":[{"path":"/etc/passwd","ranges":[{"start":1,"end":1}]}]}']);
     expect((await codeSearch(input(), dir, p => p, escaped, liveSignal())).status).toBe('error');
+    const mixed = loop(['[TOOL_CALLS]ANSWER{"files":[{"path":"/codebase/src/a.ts","ranges":[{"start":1,"end":3}]},{"path":"/codebase/src/missing.js","ranges":[{"start":1,"end":20}]}]}']);
+    const kept = await codeSearch(input(), dir, p => p, mixed, liveSignal());
+    expect(kept.status).toBe('success');
+    expect(kept.files.map(f => f.path)).toEqual([join(dir, 'src/a.ts')]);
+    expect(kept.content).toContain('were omitted');
+    expect(kept.content).not.toContain('Devin operation failed');
   });
   it('reports a guessed missing path back to the model without abandoning other commands', async () => {
     const completion = loop([
@@ -99,6 +105,15 @@ describe('bounded host-local code search', () => {
       expect(await workspace.execute({ op: 'glob', path: `/codebase/many${i}`, pattern: 'missing' })).toContain('[PARTIAL]');
     }
     await expect(workspace.execute({ op: 'glob', path: `/codebase/many${batches}`, pattern: 'missing' })).rejects.toThrow('Total distinct file visit');
+  });
+  it('reuses unchanged bytes so repeated scans extend coverage without exhausting the physical read budget', async () => {
+    await mkdir(join(dir, 'bulk'));
+    const chunk = Buffer.alloc(400 * 1024, 65);
+    await Promise.all(Array.from({ length: 100 }, (_, i) => writeFile(join(dir, 'bulk', `f${i}.txt`), chunk)));
+    const workspace = await LocalWorkspace.create(dir, dir, p => p, liveSignal());
+    expect(await workspace.execute({ op: 'readfile', path: '/codebase/src/a.ts', start: 1, end: 1 })).toContain('export function target');
+    for (let i = 0; i < 6; i++) expect(await workspace.execute({ op: 'rg', path: '/codebase/bulk', pattern: 'NEVER' })).toContain('[PARTIAL]');
+    expect((await workspace.snippet('/codebase/src/a.ts', 1, 1)).content).toContain('export function target');
   });
   it('lets the model recover from readfile on a directory without weakening file validation', async () => {
     const completion = loop([

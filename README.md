@@ -21,7 +21,7 @@
 
 1. 打开侧栏 **插件**（不是「设置 → 内置插件」——那是只读清单）。
 2. **添加插件 / 安装第三方插件**。
-3. 包名填：`dsh-devin-search`（可带版本，如 `dsh-devin-search@0.2.5`）。
+3. 包名填：`dsh-devin-search`（可带版本，如 `dsh-devin-search@0.2.6`）。
 4. 安装完成后 **启用**，必要时重启桌面端。
 
 CLI（仅非 Electron 独占 profile，例如 web）：
@@ -34,10 +34,10 @@ dsh plugin --profile web add dsh-devin-search
 
 ```sh
 npm ci && npm run check && npm pack
-# 产生 dsh-devin-search-0.2.5.tgz
+# 产生 dsh-devin-search-0.2.6.tgz
 # Electron 独占 profile 只能从原生插件页安装，填 tarball 绝对路径。
 # 以下手动方式仅适用于非 Electron 独占 profile：
-# pnpm add /绝对路径/dsh-devin-search-0.2.5.tgz
+# pnpm add /绝对路径/dsh-devin-search-0.2.6.tgz
 # 并在 profile package.json 的 dsh.profile.bundles 追加 "dsh-devin-search"
 ```
 
