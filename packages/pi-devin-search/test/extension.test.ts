@@ -132,6 +132,44 @@ describe('pi devin search extension', () => {
     await expect(code?.execute('id', { search_term: 'q', search_folder_absolute_uri: dir }, liveSignal(), undefined, toolCtx)).rejects.toThrow('code_search is disabled');
   });
 
+  it.each(['disabled', 'enabled', 'malformed startup'])('rejects cached tools after corruption (%s) before provider, session, or network access', async state => {
+    const dir = await tempDir();
+    dirs.push(dir);
+    const denied = async (): Promise<never> => { throw new Error('unexpected downstream access'); };
+    const fetcher = vi.fn(denied);
+    const complete = vi.fn(denied);
+    const runtime = createSearchRuntime(dir, {
+      oauth: { fetcher }, web: { fetcher }, completion: { complete },
+    });
+    const file = join(dir, 'devin-search', 'settings.json');
+    await runtime.settings.update({ webSearch: state === 'enabled', codeSearch: state === 'enabled' });
+    if (state === 'malformed startup') await writeFile(file, '{broken');
+    const access = vi.spyOn(runtime.session, 'access').mockImplementation(denied);
+    const search = vi.spyOn(runtime.web, 'search').mockImplementation(denied);
+    const network = vi.spyOn(globalThis, 'fetch').mockImplementation(denied);
+    try {
+      const { h, context } = await boot({ createRuntime: () => runtime, agentDir: () => dir });
+      expect(h.active).toContain('read');
+      for (const name of ['web_search', 'code_search']) {
+        expect(h.active.includes(name)).toBe(state === 'enabled');
+      }
+      const web = h.tools.get('web_search')!;
+      const code = h.tools.get('code_search')!;
+      await writeFile(file, '{broken');
+      await expect(web.execute('id', { query: 'q' }, liveSignal(), undefined, context as never)).rejects.toThrow('web_search is disabled');
+      await expect(code.execute('id', { search_term: 'q', search_folder_absolute_uri: dir }, liveSignal(), undefined, context as never)).rejects.toThrow('code_search is disabled');
+      for (const spy of [search, access, complete, fetcher, network]) expect(spy).not.toHaveBeenCalled();
+      await h.commands.get('devin-settings')?.handler('web on', context);
+      expect(await runtime.settings.read()).toEqual({ webSearch: true, codeSearch: false });
+      expect(h.active).toContain('web_search');
+      expect(h.active).not.toContain('code_search');
+      expect(h.active).toContain('read');
+    } finally {
+      network.mockRestore();
+      await runtime.dispose();
+    }
+  });
+
   it('does not replace another extension tool on a name collision', async () => {
     const { h, context } = await boot({}, [{
       name: 'web_search',

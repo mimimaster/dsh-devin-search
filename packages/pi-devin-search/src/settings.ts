@@ -15,8 +15,8 @@ export interface SearchSettings {
 
 export const DEFAULT_SETTINGS: SearchSettings = { webSearch: true, codeSearch: true };
 
-function fallback(): SearchSettings {
-  return { ...DEFAULT_SETTINGS };
+function disabled(): SearchSettings {
+  return { webSearch: false, codeSearch: false };
 }
 
 export class SettingsStore {
@@ -24,24 +24,23 @@ export class SettingsStore {
 
   async read(): Promise<SearchSettings> {
     const file = this.filePath();
-    if (!file) return fallback();
+    if (!file) return disabled();
     let stat;
     try { stat = await lstat(file); }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fallback();
-      return fallback();
+      // Only an absent config gets first-use defaults; every invalid config fails closed.
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ...DEFAULT_SETTINGS };
+      return disabled();
     }
-    if (stat.isSymbolicLink() || !stat.isFile() || stat.size > 4096) return fallback();
+    if (stat.isSymbolicLink() || !stat.isFile() || stat.size > 4096) return disabled();
     try {
       const raw = JSON.parse(await readFile(file, 'utf8')) as unknown;
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return fallback();
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return disabled();
       const record = raw as Record<string, unknown>;
-      return {
-        webSearch: record.webSearch === false ? false : true,
-        codeSearch: record.codeSearch === false ? false : true,
-      };
+      if (typeof record.webSearch !== 'boolean' || typeof record.codeSearch !== 'boolean') return disabled();
+      return { webSearch: record.webSearch, codeSearch: record.codeSearch };
     } catch {
-      return fallback();
+      return disabled();
     }
   }
 

@@ -1,30 +1,85 @@
 # pi-devin-search
 
-Native [pi](https://pi.dev) CLI extension for Devin web search and read-only local code search. It does not include a desktop or React UI and does not depend on DeepSeek Harness.
+适用于 [Pi Coding Agent](https://pi.dev) 的原生扩展，提供基于 Devin 官方接口的联网搜索（`web_search`）与本地代码库只读检索（`code_search`）。
 
-Tested host: `@earendil-works/pi-coding-agent@1.0.3` and `@earendil-works/pi-ai@1.0.3`. Pi supplies those packages and `typebox@1.3.27`; this package lists them as exact peers and does not bundle them. `ignore@7.0.5` is a runtime dependency. The published `dist/extension.js` bundles the search and OAuth core and contains no DSH runtime.
+本扩展独立运行于 Pi CLI 环境，无需图形界面支持，不依赖 DeepSeek Harness 运行时。
+
+## 功能特性
+
+- **联网搜索 (`web_search`)**：通过 Devin 服务检索公开互联网信息并返回结构化引用来源。
+- **本地代码检索 (`code_search`)**：受控只读代码检索，在当前工作区（cwd）内执行有界结构化搜索，支持代码库定位。
+- **标准认证体系**：基于 PKCE 协议实现授权码登录，凭据在本地严格隔离存储。
+- **细粒度工具控制**：支持按需独立启用或禁用特定搜索工具。
+
+## 安装指南
+
+### 从 npm 安装（推荐）
+
+在 Pi 终端中执行：
 
 ```bash
-pi install ./packages/pi-devin-search
-# or, after publish: pi install npm:pi-devin-search@0.1.0
+pi install npm:pi-devin-search
 ```
 
-## Commands
+### 本地路径安装（开发与调试）
 
-- `/devin-login` starts PKCE code login. `/devin-login local` uses an optional localhost callback.
-- `/devin-status` shows login state without credentials.
-- `/devin-logout` cancels in-flight work and deletes the stored session.
-- `/devin-cancel` cancels a pending login.
-- `/devin-settings` with no arguments opens a selector. `/devin-settings web|code on|off` changes one switch.
+指定扩展包本地路径安装：
 
-Do not paste an authorization code into a slash argument. The command rejects anything other than empty or `local` and does not echo the argument. The code prompt uses `ctx.ui.input`. That input is ordinary visible text, not a masked field. Noninteractive print/JSON login is refused. Status uses `ctx.ui.notify` and `setStatus` only, so it does not write tokens to stdout.
+```bash
+pi install /path/to/dsh-plugin-devin/packages/pi-devin-search
+```
 
-Tools `web_search` and `code_search` are registered at `session_start` after `getAllTools()`. A name already owned by another extension is left unchanged. Both tools are annotated read-only with `openWorldHint: true` because queries and selected code are sent to the Devin cloud. Disabling a tool in settings is enforced inside `execute`, not only by removing it from the active set.
+或在单次会话中临时加载：
 
-## Credentials
+```bash
+pi -e /path/to/dsh-plugin-devin/packages/pi-devin-search/dist/extension.js
+```
 
-Sessions are stored at `<getAgentDir()>/devin-search/credentials.json`. Temporary writes use `credential-*.tmp`. This package does not read pi `auth.json`, DSH credentials, or project `.pi` trees. There is no cross-process writer lock: in-process writes are serialized, and `rename` is atomic, but two processes can lose updates. Do not share one credential file across processes.
+## 命令与认证
 
-POSIX mode bits 0700/0600 are applied. They are not an equivalent confidentiality boundary on Windows. After rename, POSIX directory fsync is skipped on Windows so a successful rename is not failed by a POSIX-only directory open. Windows filesystem behavior was not validated in this environment. There is no ACL or keychain store.
+扩展注册了以下交互管理命令：
 
-Settings are independent booleans in `devin-search/settings.json`. They are not secrets.
+| 命令 | 说明 |
+| :--- | :--- |
+| `/devin-login` | 发起 PKCE 授权流程。获取授权码后在专用交互输入框中提交。 |
+| `/devin-login local` | 本机环境专用：通过本地临时回调（`127.0.0.1`）完成登录。 |
+| `/devin-status` | 查看当前会话状态及有效期（脱敏展示，不输出敏感令牌）。 |
+| `/devin-settings` | 交互式查看并调整工具启用状态。 |
+| `/devin-settings web on\|off` | 开启或禁用 `web_search` 工具。 |
+| `/devin-settings code on\|off` | 开启或禁用 `code_search` 工具。 |
+| `/devin-logout` | 取消在途请求并删除本地持久化凭据。 |
+| `/devin-cancel` | 取消等待中的登录交互流程。 |
+
+> **安全须知**：请勿将授权码直接附加在命令参数或输入在对话内容中。系统会在独立安全的输入界面中接收授权码。
+
+## 工具行为与运行约束
+
+- **默认状态**：初次安装或登录后，`web_search` 与 `code_search` 默认均为开启状态。
+- **启动白名单 (`--tools`) 兼容说明**：
+  若启动 Pi 时显式指定了 `--tools` 过滤参数，Pi 将基于全局白名单过滤所有工具（含扩展工具）。此时必须将所需工具显式加入参数，例如：
+  ```bash
+  pi --tools read,web_search,code_search
+  ```
+  修改启动参数需完全重启 Pi 进程生效（`/reload` 不会变更进程级参数白名单）。
+- **代码检索安全沙箱**：
+  - 检索范围严格限定在启动 Pi 时的当前工作目录（cwd）以内，禁止跨目录逃逸。
+  - 严格遵守目录内 `.gitignore` 规则，自动跳过敏感配置文件（如 `.env`、密钥凭据及私钥证书）与大型二进制文件。
+  - 所有工具调用均为只读模式（`readOnlyHint: true`），不具备文件写入与系统命令执行权限。
+
+## 凭据存储与隐私
+
+- **存储路径**：`<getAgentDir()>/devin-search/credentials.json`
+- **文件权限**：采用 POSIX `0600` 严格权限模式。不读取 Pi 系统自带的 `auth.json`，与宿主其他凭据完全解耦。
+- **配置持久化**：用户功能配置独立持久化于 `devin-search/settings.json`。
+
+---
+
+## 友情链接
+
+[Linux.Do](https://linux.do) — 新的理想型社区
+
+---
+
+### License
+
+[MIT](./LICENSE) — 所有源码、会话记录与凭证默认存储于用户本地，尊重代码主权与数据隐私。
