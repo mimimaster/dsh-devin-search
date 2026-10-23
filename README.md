@@ -30,7 +30,10 @@
 
 - Node.js `>=22.19.0` (ESM)
 - Cordis `>=4.0.4 <5.0.0`
+- DSH `>=0.1.7-rc.1 <0.3.0-0`（已在 `0.2.1-rc.2` 校验）。
 - 支持 DSH 运行时基础服务（提供 `credentials`、`authorization`、`commands`、`web`、`tools`、`fs` 等接口）。
+
+DSH 兼容性由 `engines.dsh` 声明：DSH 只按该范围判断插件能否安装，因此 0.2.x 的预发布版本不必再逐个补充 `peerDependencies`；`peerDependencies` 保留给仍按 peer 判断的旧版 DSH。`<0.3.0-0` 让 0.3.0 及其预发布版默认被拒绝，避免 API 变更后静默加载。
 
 ### 安装与配置
 
