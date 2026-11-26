@@ -1,5 +1,6 @@
 import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, type ToolDefinition } from '@earendil-works/pi-coding-agent';
-import { Type, type JsonValue } from '@earendil-works/pi-ai';
+import { Type } from 'typebox';
+import type { JsonValue } from '@earendil-works/pi-ai';
 import { codeSearch } from '../../../src/code-search.js';
 import { fail, safeError } from '../../../src/safety.js';
 import { createSearchRuntime, type SearchRuntime } from './runtime.js';
@@ -148,7 +149,7 @@ export function install(pi: ExtensionAPI, deps: ExtensionDeps = {}): void {
           const value = await ctx.ui.input(
             'Devin authorization code',
             'Paste the code. This input is visible, not masked.',
-            { signal, timeout: 300_000 },
+            { signal, timeout: 300_000, blockedKind: 'auth' },
           );
           if (!value) return fail('cancelled', 'Devin operation cancelled or timed out.');
           return value;
